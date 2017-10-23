@@ -50,15 +50,15 @@ def main():
     params = config['params']
 
     # Init objects
-    helper = Helper(args.fitbit_creds, args.google_creds)
+    helper = Helper(args.google_creds)
     convertor = Convertor(args.google_creds, None)
-    fitbitClient, googleClient = helper.GetFitbitClient(), helper.GetGoogleClient()
-    remote = Remote(fitbitClient, googleClient, convertor, helper)
+    googleClient = helper.GetGoogleClient()
+    remote = Remote(googleClient, convertor, helper)
 
     # Get user's time zone info from Fitbit -- since Fitbit time stamps are not epoch and stored in user's timezone.
-    userProfile = remote.ReadFromFitbit(fitbitClient.user_profile_get)
-    tzinfo = dateutil.tz.gettz(userProfile['user']['timezone'])
-    convertor.UpdateTimezone(tzinfo)
+    # userProfile = remote.ReadFromFitbit(fitbitClient.user_profile_get)
+    # tzinfo = dateutil.tz.gettz(userProfile['user']['timezone'])
+    # convertor.UpdateTimezone(tzinfo)
 
     # setup Google Fit data sources for each data type supported
     for dataType in ['steps', 'distance', 'weight', 'heart_rate', 'calories', 'activity',
@@ -70,45 +70,52 @@ def main():
     end_date_str = args.end_date if args.end_date != '' else params.get('end_date')
     start_date = convertor.parseHumanReadableDate(start_date_str)
     end_date = convertor.parseHumanReadableDate(end_date_str)
+    # start_date = datetime.strptime('18102016', '%d%m%Y').date()
+    start_date = datetime.strptime('19102017', '%d%m%Y').date()
+    # end_date = datetime.strptime('24102017', '%d%m%Y').date()
+    end_date = datetime.strptime('23102017', '%d%m%Y').date()
 
     # Start syncing data for the given range
     for single_date in convertor.daterange(start_date, end_date):
-        date_stamp = single_date.strftime(DATE_FORMAT)
-        print('------------------------------   {}  -------------------------'.format(date_stamp))
+
+        start_date_tmp = single_date
+        end_date_tmp = single_date + timedelta(days=1)
+
+        print('------------------------------   {}  -------------------------'.format(start_date_tmp))
 
         # ----------------------------------     steps      ------------------------
         if params.getboolean('sync_steps'):
-            remote.SyncFitbitToGoogleFit('steps', date_stamp)
+            remote.SyncPebbleToGoogleFit('steps', start_date_tmp, end_date_tmp)
 
-        # ----------------------------------     distance   ------------------------
-        if params.getboolean('sync_distance'):
-            remote.SyncFitbitToGoogleFit('distance', date_stamp)
-
-        # ----------------------------------     heart rate ------------------------
-        if params.getboolean('sync_heartrate'):
-            remote.SyncFitbitToGoogleFit('heart_rate', date_stamp)
-
-        # ----------------------------------     weight     ------------------------
-        if params.getboolean('sync_weight'):
-            remote.SyncFitbitToGoogleFit('weight', date_stamp)
-
-        # ----------------------------------     body fat   ------------------------
-        if params.getboolean('sync_body_fat'):
-            remote.SyncFitbitToGoogleFit('body_fat', date_stamp)
-
-        # ----------------------------------     calories   ------------------------
-        if params.getboolean('sync_calories'):
-            remote.SyncFitbitToGoogleFit('calories', date_stamp)
-
-        # ----------------------------------     sleep   ------------------------
-        if params.getboolean('sync_sleep'):
-            remote.SyncFitbitToGoogleFit('sleep', date_stamp)
+        # # ----------------------------------     distance   ------------------------
+        # if params.getboolean('sync_distance'):
+        #     remote.SyncPebbleToGoogleFit('distance', date_stamp)
+        #
+        # # ----------------------------------     heart rate ------------------------
+        # if params.getboolean('sync_heartrate'):
+        #     remote.SyncPebbleToGoogleFit('heart_rate', date_stamp)
+        #
+        # # ----------------------------------     weight     ------------------------
+        # if params.getboolean('sync_weight'):
+        #     remote.SyncPebbleToGoogleFit('weight', date_stamp)
+        #
+        # # ----------------------------------     body fat   ------------------------
+        # if params.getboolean('sync_body_fat'):
+        #     remote.SyncPebbleToGoogleFit('body_fat', date_stamp)
+        #
+        # # ----------------------------------     calories   ------------------------
+        # if params.getboolean('sync_calories'):
+        #     remote.SyncPebbleToGoogleFit('calories', date_stamp)
+        #
+        # # ----------------------------------     sleep   ------------------------
+        # if params.getboolean('sync_sleep'):
+        #     remote.SyncPebbleToGoogleFit('sleep', date_stamp)
 
         print('')
 
     # ----------------------------------  activity logs  ------------------------
-    if params.getboolean('sync_activities'):
-        remote.SyncFitbitActivitiesToGoogleFit(start_date=start_date)
+    # if params.getboolean('sync_activities'): todo
+    #     remote.SyncFitbitActivitiesToGoogleFit(start_date=start_date)
 
 if __name__ == '__main__':
     print('')

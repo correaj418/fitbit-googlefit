@@ -68,7 +68,7 @@ class Convertor:
 
     # ------------------------ Fitbit to Google Fit convertors ----------------------------
 
-    def ConvertFibitPoint(self, date, data_point, dataType):
+    def ConvertPebblePoint(self, date, data_point, dataType):
         """Converts a single Fitbit data point of a given data type to Google fit data point
 
 		date -- date to which the data_point belongs to in "yyyy-mm-dd" format
@@ -76,36 +76,42 @@ class Convertor:
 		dataType -- data type of the point
 		"""
         if dataType == 'steps':
-            return self.ConvertFibitStepsPoint(date, data_point)
-        elif dataType == 'distance':
-            return self.ConvertFibitDistancePoint(date, data_point)
-        elif dataType == 'heart_rate':
-            return self.ConvertFibitHRPoint(date, data_point)
-        elif dataType == 'weight':
-            return self.ConvertFibitWeightPoint(date, data_point)
-        elif dataType == 'body_fat':
-            return self.ConvertFibitBodyfatPoint(date, data_point)
-        elif dataType == 'calories':
-            return self.ConvertFibitCaloriesPoint(date, data_point)
-        elif dataType == 'sleep':
-            return self.ConvertFibitSleepPoint(date, data_point)
-        else:
-            raise ValueError("Unexpected data type given!")
+            return self.ConvertPebbleStepsPoint(date, data_point)
+        # elif dataType == 'distance': TODO
+        #     return self.ConvertFibitDistancePoint(date, data_point)
+        # elif dataType == 'heart_rate':
+        #     return self.ConvertFibitHRPoint(date, data_point)
+        # elif dataType == 'weight':
+        #     return self.ConvertFibitWeightPoint(date, data_point)
+        # elif dataType == 'body_fat':
+        #     return self.ConvertFibitBodyfatPoint(date, data_point)
+        # elif dataType == 'calories':
+        #     return self.ConvertFibitCaloriesPoint(date, data_point)
+        # elif dataType == 'sleep': TODO
+        #     return self.ConvertFibitSleepPoint(date, data_point)
+        # else:# TODO
+            # raise ValueError("Unexpected data type given!")
 
-    def ConvertFibitStepsPoint(self, date, data_point):
+    def ConvertPebbleStepsPoint(self, date, data_point):
         """Converts a single Fitbit intraday steps data point to Google fit data point
 
 		date -- date to which the data_point belongs to in "yyyy-mm-dd" format
 		data_point -- a single Fitbit intraday step data point
 		"""
-        timestamp = "{} {}".format(date, data_point['time'])
-        epoch_time_nanos = self.nano(self.EpochOfFitbitTimestamp(timestamp))
+        # timestamp = "{} {}".format(date, data_point['time'])
+
+        CLM_DATE_LOCAL_SECS_TIMESTAMP_IDX = 13
+        CLM_STEP_COUNT_IDX = 0
+
+        # timestamp = data_point[CLM_DATE_LOCAL_SECS_TIMESTAMP_IDX]
+        # epoch_time_nanos = self.nano(self.EpochOfFitbitTimestamp(timestamp))
+        epoch_time_nanos = data_point[CLM_DATE_LOCAL_SECS_TIMESTAMP_IDX] * 1000000000
 
         return dict(
             dataTypeName='com.google.step_count.delta',
             startTimeNanos=epoch_time_nanos,
             endTimeNanos=epoch_time_nanos + 110,
-            value=[dict(intVal=data_point['value'])]
+            value=[dict(intVal=data_point[CLM_STEP_COUNT_IDX])]
         )
 
     def ConvertFibitDistancePoint(self, date, data_point):

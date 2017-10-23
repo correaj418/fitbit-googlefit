@@ -13,6 +13,7 @@ import json
 from datetime import timedelta, date, datetime
 
 import fitbit
+import sqlite3
 from fitbit.exceptions import HTTPTooManyRequests
 from apiclient.discovery import build
 from oauth2client.file import Storage
@@ -21,13 +22,17 @@ from googleapiclient.errors import HttpError
 
 from app import DATE_FORMAT
 
+
+class BrokenPipeError(object):
+    pass
+
 class Remote:
     """Methods for remote api calls and synchronization from Fitbit to Google Fit"""
 
     FITBIT_API_URL = 'https://api.fitbit.com/1'
     GFIT_MAX_POINTS_PER_UPDATE = 2000  # Max number of data points that can be sent in a single update request
 
-    def __init__(self, fitbitClient, googleClient, convertor, helper):
+    def __init__(self, googleClient, convertor, helper):
         """ Intialize a remote object.
 		
 		fitbitClient -- authenticated fitbit client
@@ -35,7 +40,6 @@ class Remote:
 		convertor -- a convertor object for type conversions
 		helper -- a helper object for fitbit credentials update
 		"""
-        self.fitbitClient = fitbitClient
         self.googleClient = googleClient
         self.convertor = convertor
         self.helper = helper
@@ -43,6 +47,26 @@ class Remote:
     ########################### Remote data read/write methods ############################
 
     def ReadFromFitbit(self, api_call, *args, **kwargs):
+        """Peforms a read request from Fitbit API. The request will be paused if API rate limiting has 
+		been reached!
+
+		api_call -- api method to call
+		args -- arguments to pass for the method
+		"""
+        # res_url,date_stamp,detail_level
+        try:
+            resp = api_call(*args, **kwargs)
+        except HTTPTooManyRequests as e:
+            print('')
+            print('-------------------- Fitbit API rate limit reached -------------------')
+            retry_time = datetime.now() + timedelta(seconds=e.retry_after_secs)
+            print('Will retry at {}'.format(retry_time.strftime('%H:%M:%S')))
+            print('')
+            time.sleep(e.retry_after_secs)
+            resp = self.ReadFromFitbit(api_call, *args, **kwargs)
+        return resp
+
+    def ReadFromPebble(self, api_call, *args, **kwargs):
         """Peforms a read request from Fitbit API. The request will be paused if API rate limiting has 
 		been reached!
 
@@ -126,26 +150,24 @@ class Remote:
 
     ########################################### Sync methods ########################################
 
-    def SyncFitbitToGoogleFit(self, dataType, date_stamp):
+    def SyncPebbleToGoogleFit(self, dataType, start_date, end_date):
         """
-		Sync Fitbit data to Google fit for a given day.
+		Sync Pebble data to Google fit for a given day.
 
 		dataType -- fitbit data type to sync
 		date_stamp -- timestamp in yyyy-mm-dd format of the day to sync
 		"""
-        # Persist current credentials. Incase the request fails.
-        self.helper.UpdateFitbitCredentials(self.fitbitClient)
 
         if dataType in ('steps', 'distance', 'heart_rate', 'calories'):
-            return self.SyncFitbitIntradayToGoogleFit(dataType, date_stamp)
+            return self.SyncFitbitIntradayToGoogleFit(dataType, start_date, end_date)
         elif dataType in ('weight', 'body_fat'):
-            return self.SyncFitbitLogToGoogleFit(dataType, date_stamp)
+            return self.SyncFitbitLogToGoogleFit(dataType, '')
         elif dataType in ('sleep'):
-            return self.SyncFitbitSleepToGoogleFit(date_stamp)
+            return self.SyncFitbitSleepToGoogleFit('')
         else:
             raise ValueError("Unexpected data type given!")
 
-    def SyncFitbitIntradayToGoogleFit(self, dataType, date_stamp):
+    def SyncFitbitIntradayToGoogleFit(self, dataType, start_date, end_date):
         """
 		Sync Fitbit data of a particular intraday type to Google fit for a given day.
 
@@ -156,31 +178,34 @@ class Remote:
             res_path, detail_level, resp_id = 'activities/steps', '1min', 'activities-steps-intraday'
         elif dataType == 'distance':
             res_path, detail_level, resp_id = 'activities/distance', '1min', 'activities-distance-intraday'
-        elif dataType == 'heart_rate':
-            res_path, detail_level, resp_id = 'activities/heart', '1sec', 'activities-heart-intraday'
-        elif dataType == 'calories':
-            res_path, detail_level, resp_id = 'activities/calories', '1min', 'activities-calories-intraday'
+        # elif dataType == 'heart_rate':
+        #     res_path, detail_level, resp_id = 'activities/heart', '1sec', 'activities-heart-intraday'
+        # elif dataType == 'calories':
+        #     res_path, detail_level, resp_id = 'activities/calories', '1min', 'activities-calories-intraday'
         else:
             raise ValueError("Unexpected data type given!")
         dataSourceId = self.convertor.GetDataSourceId(dataType)
 
-        # Get intraday data from fitbit
-        interday_raw = self.ReadFromFitbit(self.fitbitClient.intraday_time_series, res_path,
-                                           base_date=date_stamp,
-                                           detail_level=detail_level)
-        try:
-            intraday_data = interday_raw[resp_id]['dataset']
-        except KeyError as e:
-            print('')
-            print(
-            'Uh oh! Looks like you didn\'t set your "OAuth 2.0 Application Type" to "Personal" during Fitbit setup.')
-            print(
-            'For more information, refer https://github.com/praveendath92/fitbit-googlefit/issues/2')
-            print('')
-            exit()
+        # self.ReadMinutesFromPebbleDb(date_stamp)
+        intraday_data = self.ReadMinutesFromPebbleDb(str(start_date), str(end_date))
+
+        # # Get intraday data from fitbit
+        # interday_raw = self.ReadFromFitbit(self.fitbitClient.intraday_time_series, res_path,
+        #                                    base_date=date_stamp,
+        #                                    detail_level=detail_level)
+        # try:
+        #     intraday_data = interday_raw[resp_id]['dataset']
+        # except KeyError as e:
+        #     print('')
+        #     print(
+        #     'Uh oh! Looks like you didn\'t set your "OAuth 2.0 Application Type" to "Personal" during Fitbit setup.')
+        #     print(
+        #     'For more information, refer https://github.com/praveendath92/fitbit-googlefit/issues/2')
+        #     print('')
+        #     exit()
 
         # convert all fitbit data points to google fit data points
-        googlePoints = [self.convertor.ConvertFibitPoint(date_stamp, point, dataType) for point in
+        googlePoints = [self.convertor.ConvertPebblePoint(start_date, point, dataType) for point in
                         intraday_data]
 
         # Write a day of fitbit data to Google fit
@@ -207,7 +232,7 @@ class Remote:
             resp_id]
 
         # convert all fitbit data points to google fit data points
-        googlePoints = [self.convertor.ConvertFibitPoint(date_stamp, point, dataType) for point in
+        googlePoints = [self.convertor.ConvertPebblePoint(date_stamp, point, dataType) for point in
                         fitbitLogs]
 
         # Write a day of fitbit data to Google fit
@@ -240,7 +265,7 @@ class Remote:
 
             # convert all fitbit data points to google fit data points
             googlePoints = [
-                self.convertor.ConvertFibitPoint((date_stamp if start_time <= point['dateTime'] else \
+                self.convertor.ConvertPebblePoint((date_stamp if start_time <= point['dateTime'] else \
                                                       next_date_stamp), point, 'sleep') for point in
                 minute_points]
 
@@ -303,3 +328,33 @@ class Remote:
 
         if activities_raw['pagination']['next'] != '':
             self.SyncFitbitActivitiesToGoogleFit(callurl=activities_raw['pagination']['next'])
+
+    ########################################### SQL methods ###########################################
+
+    # def ReadFromPebbleDb(self):
+    #
+    #     sqlConnection = sqlite3.connect('pebble_health.db')
+    #     sqlCursor = sqlConnection.cursor()
+    #
+    #     sqlCursor.execute("SELECT * AS date FROM minute_samples WHERE datetime(date_local_secs, 'unixepoch') BETWEEN '2017-10-12' AND '2017-10-13'")
+    #
+    #     sqlResult = sqlCursor.fetchall()
+    #
+    #     print sqlCursor.fetchone()
+
+    def ReadMinutesFromPebbleDb(self, startDate, endDate):
+
+        sqlConnection = sqlite3.connect('pebble_health.db')
+        sqlCursor = sqlConnection.cursor()
+
+        sqlQuery = "SELECT * FROM minute_samples WHERE datetime(date_local_secs, 'unixepoch') BETWEEN '" + startDate + "' AND '" + endDate + "'"
+        sqlCursor.execute(sqlQuery)
+
+        sqlResult = sqlCursor.fetchall()
+
+        sqlCursor.close()
+        sqlConnection.close()
+
+        return sqlResult
+
+
